@@ -1,9 +1,13 @@
 package kodi
 
 import (
+	"fmt"
 	"math/rand"
+	"os"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/maaxlee/kodi_youtube_bot/logger"
 )
 
 type request struct {
@@ -34,15 +38,46 @@ type openItem struct {
 	Position   int `json:"position"`
 }
 
+type response struct {
+	Id      int    `json:"id"`
+	Jsonrpc string `json:"jsonrpc"`
+	Result  string `json:"result"`
+}
+
 var (
-	clearRequest = request{
-		Id:      getId(),
+	url         = fmt.Sprintf("ws://%s:9090/jsonrpc", getEnv("KODI_HOST", "localhost"))
+	youtubePath = "plugin://plugin.video.youtube/play/?video_id="
+	log         = logger.GetLogger(os.Stdout, "Kodi: ", 0)
+)
+
+func getEnv(key string, fallback string) string {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback
+	}
+	return v
+}
+
+func getId() int {
+	return rand.Intn(1000)
+}
+
+func getClearRequest() (*request, int) {
+	id := getId()
+	clearRequest := &request{
+		Id:      id,
 		Jsonrpc: "2.0",
 		Method:  "Playlist.Clear",
 		Params:  clearParams{Playlistid: 1},
 	}
-	openRequest = request{
-		Id:      getId(),
+	return clearRequest, id
+
+}
+
+func getOpenRequest() (*request, int) {
+	id := getId()
+	openRequest := &request{
+		Id:      id,
 		Jsonrpc: "2.0",
 		Method:  "Player.Open",
 		Params: openParams{
@@ -52,12 +87,8 @@ var (
 			},
 		},
 	}
-	url         = "ws://localhost:9090/jsonrpc"
-	youtubePath = "plugin://plugin.video.youtube/play/?video_id="
-)
+	return openRequest, id
 
-func getId() int {
-	return rand.Intn(1000)
 }
 
 func getAddRequest(youtubeId string) *request {
@@ -72,23 +103,62 @@ func getAddRequest(youtubeId string) *request {
 	}
 }
 
+func checkResponse(ws *websocket.Conn, req string, id int) error {
+
+	for {
+		select {
+		case <-time.After(10 * time.Second):
+			return fmt.Errorf("Could not wait until successfull response for request %s", req)
+		default:
+			r := &response{}
+			err := ws.ReadJSON(r)
+			if err != nil {
+				return err
+			}
+			if r.Id != id {
+				continue
+			}
+			if r.Result != "OK" {
+				return fmt.Errorf("Non OK response after %s request: %v", req, r)
+			}
+			return nil
+		}
+	}
+
+}
 func playYoutubeVideo(videoId string) error {
 
+	log.Debugp("Opening WS to kodi")
 	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return err
 	}
 	defer ws.Close()
+
+	log.Debugp("Sending Clear request")
+	clearRequest, id := getClearRequest()
 	err = ws.WriteJSON(clearRequest)
 	if err != nil {
 		return err
 	}
+	if err := checkResponse(ws, "clear", id); err != nil {
+		return err
+	}
+
+	log.Debugp("Sending add video request")
 	err = ws.WriteJSON(getAddRequest(videoId))
 	if err != nil {
 		return err
 	}
+
+	log.Debugp("Sending open request")
+	openRequest, id := getOpenRequest()
 	err = ws.WriteJSON(openRequest)
 	if err != nil {
+		return err
+	}
+
+	if err := checkResponse(ws, "open", id); err != nil {
 		return err
 	}
 
@@ -96,8 +166,16 @@ func playYoutubeVideo(videoId string) error {
 }
 
 // Plays video on Kodi with given youtube video Id
-func PlayYoutubeVideo(ch chan string) {
-	for videoId := range ch {
-		playYoutubeVideo(videoId)
+func PlayYoutubeVideo(playCh chan string, ackCh chan bool) {
+	for videoId := range playCh {
+		log.Debugp("Got video Id to play")
+		err := playYoutubeVideo(videoId)
+		if err != nil {
+			log.Debugp("Error on sending data to Kodi")
+			log.Debugp(err)
+			ackCh <- false
+			continue
+		}
+		ackCh <- true
 	}
 }
