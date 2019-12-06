@@ -2,17 +2,17 @@ package telegram
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/maaxlee/kodi_youtube_bot/logger"
 )
 
 var (
-	logger = log.New(os.Stdout, "Telegram: ", 0)
-	token  = ""
+	log = logger.GetLogger(os.Stdout, "Telegram: ", 0)
+	ack bool
 )
 
 func getIdFromUrl(msg string) (string, error) {
@@ -31,9 +31,13 @@ func getIdFromUrl(msg string) (string, error) {
 	}
 
 }
-func RunTelBot(ch chan string, errorChan chan error) {
+func RunTelBot(outCh chan string, ackCh chan bool, errorChan chan error) {
 
-	log.Print("Starting bot")
+	log.Printf("Starting bot")
+	token, ok := os.LookupEnv("TG_TOKEN")
+	if !ok {
+		errorChan <- fmt.Errorf("Token not found")
+	}
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		errorChan <- err
@@ -44,15 +48,21 @@ func RunTelBot(ch chan string, errorChan chan error) {
 	if err != nil {
 		errorChan <- err
 	}
-	log.Print("Waiting for messages")
+	log.Debugp("Waiting for messages")
 	for u := range updates {
+		log.Debugp(fmt.Sprintf("Got message from channel: %s", u.Message.Text))
 		id, err := getIdFromUrl(u.Message.Text)
 		if err != nil {
 			msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Wrong or mailformed youtube URL, please check format")
 			bot.Send(msg)
 			continue
 		}
-		log.Print("Sending to channel")
-		ch <- id
+		log.Debugp(fmt.Sprintf("Sending to channel id %s", id))
+		outCh <- id
+		ack = <-ackCh
+		if !ack {
+			msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Something went wrong while trying to start playing, for details see logs")
+			bot.Send(msg)
+		}
 	}
 }
