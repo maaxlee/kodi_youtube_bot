@@ -31,7 +31,7 @@ func getIdFromUrl(msg string) (string, error) {
 	}
 
 }
-func RunTelBot(outCh chan string, ackCh chan bool, errorChan chan error) {
+func RunTelBot(tubeCh chan string, torCh chan string, ackCh chan bool, errorChan chan error) {
 
 	log.Printf("Starting bot")
 	token, ok := os.LookupEnv("TG_TOKEN")
@@ -51,14 +51,20 @@ func RunTelBot(outCh chan string, ackCh chan bool, errorChan chan error) {
 	log.Debugp("Waiting for messages")
 	for u := range updates {
 		log.Debugp(fmt.Sprintf("Got message from channel: %s", u.Message.Text))
-		id, err := getIdFromUrl(u.Message.Text)
-		if err != nil {
-			msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Wrong or mailformed youtube URL, please check format")
-			bot.Send(msg)
-			continue
+		if strings.Contains(u.Message.Text, "youtu") {
+			id, err := getIdFromUrl(u.Message.Text)
+			if err != nil {
+				msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Wrong or mailformed youtube URL, please check format")
+				bot.Send(msg)
+				continue
+			}
+			log.Debugp(fmt.Sprintf("Sending to channel id %s", id))
+			tubeCh <- id
+
+		} else {
+			log.Debugp("Sending torrent search term")
+			tubeCh <- u.Message.Text
 		}
-		log.Debugp(fmt.Sprintf("Sending to channel id %s", id))
-		outCh <- id
 		ack = <-ackCh
 		if !ack {
 			msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Something went wrong while trying to start playing, for details see logs")

@@ -13,11 +13,12 @@ var log = logger.GetLogger(os.Stdout, "Main: ", 0)
 func main() {
 
 	log.Printf("Starting telegram youtube bot")
-	inCh := make(chan string, 5)
+	tubeCh := make(chan string, 5)
+	torCh := make(chan string, 5)
 	ackCh := make(chan bool, 5)
 	errorChan := make(chan error, 2)
-	go telegram.RunTelBot(inCh, ackCh, errorChan)
-	go kodi.PlayYoutubeVideo(inCh, ackCh)
+	go telegram.RunTelBot(tubeCh, torCh, ackCh, errorChan)
+	go kodi.HandleKodiInput(tubeCh, torCh, ackCh)
 	for err := range errorChan {
 		panic(err)
 	}
