@@ -208,8 +208,8 @@ func searchOnTorrent(searchItem string) error {
 
 // Plays video on youtube or search for torrent using elementum
 func HandleKodiInput(playCh chan string, searchCh chan string, ackCh chan bool) {
+	var item string
 	for {
-
 		select {
 		case item = <-playCh:
 			log.Debugp("Got video Id to play")
