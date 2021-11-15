@@ -155,16 +155,13 @@ func sendRequestToKodi(req *request) error {
 	log.Debugp("Sending open request")
 	openRequest, id := getOpenRequest()
 	err = ws.WriteJSON(openRequest)
-	log.Debugp("002")
 	if err != nil {
 		return err
 	}
 
-	log.Debugp("003")
 	if err := checkResponse(ws, "open", id); err != nil {
 		return err
 	}
-	log.Debugp("004")
 
 	return nil
 
