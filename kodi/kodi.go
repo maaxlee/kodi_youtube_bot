@@ -3,6 +3,7 @@ package kodi
 import (
 	"fmt"
 	"math/rand"
+	"net/url"
 	"os"
 	"time"
 
@@ -45,8 +46,9 @@ type response struct {
 }
 
 var (
-	url         = fmt.Sprintf("ws://%s:9090/jsonrpc", getEnv("KODI_HOST", "localhost"))
+	kodiUrl     = fmt.Sprintf("ws://%s:9090/jsonrpc", getEnv("KODI_HOST", "localhost"))
 	youtubePath = "plugin://plugin.video.youtube/play/?video_id="
+	searchPath  = "plugin://plugin.video.elementum/search?q="
 	log         = logger.GetLogger(os.Stdout, "Kodi: ", 0)
 )
 
@@ -91,14 +93,14 @@ func getOpenRequest() (*request, int) {
 
 }
 
-func getAddRequest(youtubeId string) *request {
+func getAddRequest(videoPath string) *request {
 	return &request{
 		Id:      getId(),
 		Jsonrpc: "2.0",
 		Method:  "Playlist.Add",
 		Params: addParams{
 			Playlistid: 1,
-			Item:       addFile{File: youtubePath + youtubeId},
+			Item:       addFile{File: videoPath},
 		},
 	}
 }
@@ -126,10 +128,9 @@ func checkResponse(ws *websocket.Conn, req string, id int) error {
 	}
 
 }
-func playYoutubeVideo(videoId string) error {
-
+func sendRequestToKodi(req *request) error {
 	log.Debugp("Opening WS to kodi")
-	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	ws, _, err := websocket.DefaultDialer.Dial(kodiUrl, nil)
 	if err != nil {
 		return err
 	}
@@ -146,7 +147,7 @@ func playYoutubeVideo(videoId string) error {
 	}
 
 	log.Debugp("Sending add video request")
-	err = ws.WriteJSON(getAddRequest(videoId))
+	err = ws.WriteJSON(req)
 	if err != nil {
 		return err
 	}
@@ -163,19 +164,46 @@ func playYoutubeVideo(videoId string) error {
 	}
 
 	return nil
+
+}
+func playYoutubeVideo(videoId string) error {
+	req := getAddRequest(youtubePath + videoId)
+	err := sendRequestToKodi(req)
+	return err
 }
 
-// Plays video on Kodi with given youtube video Id
-func PlayYoutubeVideo(playCh chan string, ackCh chan bool) {
-	for videoId := range playCh {
-		log.Debugp("Got video Id to play")
-		err := playYoutubeVideo(videoId)
-		if err != nil {
-			log.Debugp("Error on sending data to Kodi")
-			log.Debugp(err)
-			ackCh <- false
-			continue
+func searchOnTorrent(searchItem string) error {
+	req := getAddRequest(searchPath + url.QueryEscape(searchItem))
+	err := sendRequestToKodi(req)
+	return err
+
+}
+
+// Plays video on youtube or search for torrent using elementum
+func HandleKodiInput(playCh chan string, torCh chan string, ackCh chan bool) {
+	for {
+		select {
+		case item := <-playCh:
+			log.Debugp("Got video Id to play")
+			err := playYoutubeVideo(item)
+			if err != nil {
+				log.Debugp("Error on sending youtube data to Kodi")
+				log.Debugp(err)
+				ackCh <- false
+				continue
+			}
+			ackCh <- true
+		case item := <-torCh:
+			log.Debugp("Got torrent to search")
+			err := searchOnTorrent(item)
+			if err != nil {
+				log.Debugp("Error on sending torrent search data to Kodi")
+				log.Debugp(err)
+				ackCh <- false
+				continue
+			}
+			ackCh <- true
+
 		}
-		ackCh <- true
 	}
 }
