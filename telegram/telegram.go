@@ -63,7 +63,7 @@ func RunTelBot(tubeCh chan string, torCh chan string, ackCh chan bool, errorChan
 
 		} else {
 			log.Debugp("Sending torrent search term")
-			tubeCh <- u.Message.Text
+			torCh <- u.Message.Text
 		}
 		ack = <-ackCh
 		if !ack {
